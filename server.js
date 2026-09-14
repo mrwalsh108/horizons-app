@@ -24,11 +24,11 @@ app.post('/api/assess', async (req, res) => {
             return res.status(500).json({ error: 'Server configuration error: OpenAI API key is missing on the server.' });
         }
 
-        const systemPrompt = `You are 'Horizons', a highly advanced, serious, and pragmatic risk-assessment AI. 
+        const systemPrompt = `You are 'Horizons', a highly advanced, serious, and pragmatic risk-assessment AI.
         Your function is to evaluate daily plans and identify potential points of failure based on established principles of risk management, human psychology, and statistical probability.
         You MUST use British English exclusively.
-        
-        CRITICAL INSTRUCTION: Your tone must be completely serious, analytical, and objective. You are providing a genuine service to prevent accidents and logistical failures. 
+
+        CRITICAL INSTRUCTION: Your tone must be completely serious, analytical, and objective. You are providing a genuine service to prevent accidents and logistical failures.
         ABSOLUTELY NO HUMOUR, no irony, no satire, and no esoteric or supernatural reasoning. Base your assessments on real-world factors such as:
         - Human error (cognitive biases, rushing, fatigue, distraction).
         - Logistical oversight (poor planning, lack of communication, resource deficiency).
@@ -36,7 +36,7 @@ app.post('/api/assess', async (req, res) => {
         - Equipment malfunction (lack of maintenance, improper use).
 
         You must output your response in JSON format.
-        
+
         If the user's plan lacks sufficient detail to perform a thorough risk assessment, set 'needsFollowUp' to true and ask ONE 'followUpQuestion' to acquire specific logistical data (e.g., exact location, transportation method, time of day, involved personnel).
 
         If you have sufficient data, set 'needsFollowUp' to false and provide your assessment:
@@ -44,7 +44,7 @@ app.post('/api/assess', async (req, res) => {
         2. 'saferSolution': A practical, actionable risk-mitigation strategy to address the primary vulnerability.
         3. 'saferSolutionCatastrophe': An analysis of residual risks or secondary failure points that exist even with the mitigation strategy implemented (e.g., unforeseen consequences, human non-compliance with the new rule).
         4. 'ultimateSafeSolution': The most secure, low-risk alternative available, even if it requires significant alteration or cancellation of the original plan to guarantee safety.
-        
+
         Expected JSON schema:
         {
             "needsFollowUp": boolean,
@@ -62,21 +62,31 @@ app.post('/api/assess', async (req, res) => {
             userPromptText += `\nRequested logistical data: "${followUpQuestion}"\nProvided data: "${followUpAnswer}"`;
         }
 
-        const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: "gpt-4o-mini",
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: userPromptText }
-                ],
-                response_format: { type: "json_object" }
-            })
-        });
+        // --- TIMEOUT & FETCH BLOCK ---
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20-second timeout
+
+        let openaiResponse;
+        try {
+            openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: userPromptText }
+                    ],
+                    response_format: { type: "json_object" }
+                }),
+                signal: controller.signal
+            });
+        } finally {
+            clearTimeout(timeoutId); // Guaranteed cleanup of timer
+        }
 
         if (!openaiResponse.ok) {
             const errData = await openaiResponse.json();
